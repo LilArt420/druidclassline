@@ -1,0 +1,87 @@
+# Checks the repository on every pull request and every push to main.
+#
+# The Druid Class release is an install kit (install.sh, a rebuilt server image
+# and client patches), built outside this repository and attached to releases
+# by hand: this repository holds only the README. So for now this parses every
+# .yml with rapidyaml and, for any mod.json committed here, runs the same
+# mod.json checks as LilArt420's other mod repositories (docs/MODDING.md, and
+# the app's own manifest reader). The scripts are in .github/scripts/ and are
+# the same in every LilArt420 mod repository; when the kit's sources move in,
+# add the release zip and rAthena checks from LilArt420/cashshopmod's
+# validate.yml.
+
+name: Validate mod
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  APP_REPO: Flux159/ragnarokoffline.app
+
+jobs:
+  check:
+    name: YAML and any mod.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install rapidyaml
+        run: pip install --quiet rapidyaml
+
+      - name: Parse every .yml with rapidyaml
+        run: python3 .github/scripts/validate_mod.py yaml .
+
+      - name: Find mod.json files
+        id: find
+        run: |
+          dirs=$(find . -name mod.json -not -path './.git/*' -exec dirname {} \; | sort | tr '\n' ' ')
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+          [ -n "$dirs" ] && echo "mod.json in: $dirs" || echo "No mod.json in this repository: nothing more to check."
+
+      - name: Check mod.json
+        if: steps.find.outputs.dirs != ''
+        run: |
+          status=0
+          for dir in ${{ steps.find.outputs.dirs }}; do
+            python3 .github/scripts/validate_mod.py manifest "$dir" || status=1
+          done
+          exit $status
+
+      - name: Find the app's latest release
+        if: steps.find.outputs.dirs != ''
+        id: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "tag=$(gh release view --repo "$APP_REPO" --json tagName -q .tagName)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the app
+        if: steps.find.outputs.dirs != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPO }}
+          ref: ${{ steps.app.outputs.tag }}
+          path: .app
+
+      - name: The app's manifest reader accepts mod.json
+        if: steps.find.outputs.dirs != ''
+        run: |
+          cat .github/scripts/app_mods_ci.rs >> .app/stack/src/mods.rs
+          status=0
+          for dir in ${{ steps.find.outputs.dirs }}; do
+            (cd .app/stack && CI_MOD_DIR="$GITHUB_WORKSPACE/$dir" cargo test -q -- --ignored ci_mod::check --nocapture) || status=1
+          done
+          exit $status
