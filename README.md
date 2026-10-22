@@ -1,3 +1,5 @@
+> 📦 **Archived.** The Druid class line ships inside Ragnarok Offline itself since 1.6.7 (server, client and the Job Master), so this repository is no longer needed.
+
 # Druid Class Line
 
 kRO's newest job line comes to your own Ragnarok Offline server: Novice → Druid → Karnos → Alitea. 🐺🦅✨
